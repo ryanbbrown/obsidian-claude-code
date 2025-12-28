@@ -1,80 +1,63 @@
 import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import {DEFAULT_SETTINGS, ClaudeCodeSettings, ClaudeCodeSettingTab} from "./settings";
+import {editTextWithClaude} from "./claude";
 
-// Remember to rename these classes and interfaces!
-
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class ClaudeCodePlugin extends Plugin {
+	settings: ClaudeCodeSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
+		// Add the "Edit Text" editor command
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
+			id: 'edit-text-with-claude',
+			name: 'Edit Text',
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+				const selectedText = editor.getSelection();
+				if (!selectedText) {
+					new Notice('Please select some text first');
+					return;
 				}
-				return false;
+
+				new PromptModal(this.app, async (instruction) => {
+					if (!instruction) return;
+
+					new Notice('Sending to Claude...');
+
+					try {
+						const vaultPath = (this.app.vault.adapter as any).basePath;
+
+						const result = await editTextWithClaude(selectedText, instruction, {
+							claudePath: this.settings.claudePath,
+							workingDir: vaultPath,
+							onText: (text) => {
+								// Could update a status bar here for streaming feedback
+							},
+							onComplete: () => {
+								new Notice('Claude finished editing');
+							},
+							onError: (err) => {
+								new Notice(`Error: ${err.message}`);
+							}
+						});
+
+						// Replace the selection with Claude's output
+						editor.replaceSelection(result);
+					} catch (err: any) {
+						new Notice(`Failed to edit text: ${err.message}`);
+						console.error('Claude edit error:', err);
+					}
+				}).open();
 			}
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-
+		this.addSettingTab(new ClaudeCodeSettingTab(this.app, this));
 	}
 
-	onunload() {
-	}
+	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<ClaudeCodeSettings>);
 	}
 
 	async saveSettings() {
@@ -82,14 +65,55 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
+/** Modal that prompts the user for editing instructions. */
+class PromptModal extends Modal {
+	private onSubmit: (instruction: string) => void;
+
+	constructor(app: App, onSubmit: (instruction: string) => void) {
 		super(app);
+		this.onSubmit = onSubmit;
 	}
 
 	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
+		const {contentEl} = this;
+
+		contentEl.createEl('h3', {text: 'Edit with Claude'});
+		contentEl.createEl('p', {text: 'Enter your editing instructions:'});
+
+		const inputContainer = contentEl.createDiv();
+		const inputField = inputContainer.createEl('input', {
+			type: 'text',
+			cls: 'claude-prompt-input',
+		});
+		inputField.style.width = '100%';
+		inputField.style.padding = '8px';
+		inputField.style.marginBottom = '16px';
+		inputField.placeholder = 'e.g., "Make this more concise" or "Fix grammar"';
+
+		inputField.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				this.submit(inputField.value);
+			}
+		});
+
+		const buttonContainer = contentEl.createDiv({cls: 'modal-button-container'});
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.justifyContent = 'flex-end';
+		buttonContainer.style.gap = '8px';
+
+		const cancelBtn = buttonContainer.createEl('button', {text: 'Cancel'});
+		cancelBtn.addEventListener('click', () => this.close());
+
+		const submitBtn = buttonContainer.createEl('button', {text: 'Edit', cls: 'mod-cta'});
+		submitBtn.addEventListener('click', () => this.submit(inputField.value));
+
+		// Focus the input
+		inputField.focus();
+	}
+
+	private submit(value: string) {
+		this.close();
+		this.onSubmit(value);
 	}
 
 	onClose() {

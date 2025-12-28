@@ -1,0 +1,9 @@
+[submodule "obsidian-terminal"]
+	path = obsidian-terminal
+	url = https://github.com/polyipseity/obsidian-terminal.git
+[submodule "claude-code-chat"]
+	path = claude-code-chat
+	url = https://github.com/andrepimenta/claude-code-chat.git
+[submodule "obsidian-copilot"]
+	path = obsidian-copilot
+	url = https://github.com/logancyang/obsidian-copilot.git

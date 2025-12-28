@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Claude SDK Test</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; }
+    textarea { width: 100%; height: 100px; margin: 10px 0; }
+    button { padding: 10px 20px; }
+    #result { white-space: pre-wrap; background: #f0f0f0; padding: 10px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Claude Agent SDK Test</h1>
+  <textarea id="prompt" placeholder="Enter your prompt...">Say hello in exactly 5 words</textarea>
+  <br>
+  <button onclick="runQuery()">Run Query</button>
+  <div id="result"></div>
+
+  <script>
+    async function runQuery() {
+      const prompt = document.getElementById('prompt').value;
+      const resultDiv = document.getElementById('result');
+
+      resultDiv.textContent = 'Running...';
+      console.log('Sending query:', prompt);
+
+      try {
+        const response = await window.claude.query(prompt);
+        console.log('Response:', response);
+
+        if (response.success) {
+          resultDiv.textContent = response.result;
+        } else {
+          resultDiv.textContent = 'Error: ' + response.error;
+        }
+      } catch (err) {
+        console.error('Error:', err);
+        resultDiv.textContent = 'Error: ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
