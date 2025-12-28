@@ -1,23 +1,8 @@
-/** Stub aiParams - LangChain types removed, only exports needed by UI */
+/** Chat state atoms and utilities. */
 import { ChainType } from "@/chainFactory";
-import { ModelCapability } from "@/constants";
 import { settingsAtom, settingsStore } from "@/settings/model";
 import { SelectedTextContext } from "@/types/message";
 import { atom, useAtom } from "jotai";
-
-const userModelKeyAtom = atom<string | null>(null);
-const modelKeyAtom = atom(
-  (get) => {
-    const userValue = get(userModelKeyAtom);
-    if (userValue !== null) {
-      return userValue;
-    }
-    return get(settingsAtom).defaultModelKey;
-  },
-  (get, set, newValue) => {
-    set(userModelKeyAtom, newValue);
-  }
-);
 
 const userChainTypeAtom = atom<ChainType | null>(null);
 const chainTypeAtom = atom(
@@ -28,13 +13,14 @@ const chainTypeAtom = atom(
     }
     return get(settingsAtom).defaultChainType;
   },
-  (get, set, newValue) => {
+  (_get, set, newValue) => {
     set(userChainTypeAtom, newValue);
   }
 );
 
 const currentProjectAtom = atom<ProjectConfig | null>(null);
 const projectLoadingAtom = atom<boolean>(false);
+const selectedTextContextsAtom = atom<SelectedTextContext[]>([]);
 
 export interface FailedItem {
   path: string;
@@ -57,8 +43,6 @@ export const projectContextLoadAtom = atom<ProjectContextLoadState>({
   total: [],
 });
 
-const selectedTextContextsAtom = atom<SelectedTextContext[]>([]);
-
 export interface ProjectConfig {
   id: string;
   name: string;
@@ -77,52 +61,6 @@ export interface ProjectConfig {
   };
   created: number;
   UsageTimestamps: number;
-}
-
-export interface ModelConfig {
-  modelName: string;
-  temperature?: number;
-  streaming: boolean;
-  maxRetries: number;
-  maxConcurrency: number;
-  maxTokens?: number;
-}
-
-export interface SetChainOptions {
-  prompt?: unknown;
-  chatModel?: unknown;
-  noteFile?: unknown;
-  abortController?: AbortController;
-  refreshIndex?: boolean;
-}
-
-export interface CustomModel {
-  name: string;
-  provider: string;
-  baseUrl?: string;
-  apiKey?: string;
-  enabled: boolean;
-  isEmbeddingModel?: boolean;
-  isBuiltIn?: boolean;
-  enableCors?: boolean;
-  capabilities?: ModelCapability[];
-  displayName?: string;
-}
-
-export function setModelKey(modelKey: string) {
-  settingsStore.set(modelKeyAtom, modelKey);
-}
-
-export function getModelKey(): string {
-  return settingsStore.get(modelKeyAtom);
-}
-
-export function subscribeToModelKeyChange(callback: () => void): () => void {
-  return settingsStore.sub(modelKeyAtom, callback);
-}
-
-export function useModelKey() {
-  return useAtom(modelKeyAtom, { store: settingsStore });
 }
 
 export function getChainType(): ChainType {

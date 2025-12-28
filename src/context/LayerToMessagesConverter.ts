@@ -88,14 +88,9 @@ export class LayerToMessagesConverter {
       }
     }
 
-    // Handle conversation history from L4 if present
-    // Note: L4 is currently deferred, so this is a placeholder for future use
-    if (l4Strip && l4Strip.text) {
-      // L4 would contain formatted conversation history
-      // For now, we skip it and rely on ChainRunner's existing memory management
-      if (debug) {
-        logInfo("[LayerToMessagesConverter] L4 (Strip) found but skipped (using LangChain memory)");
-      }
+    // Handle conversation history from L4 if present (placeholder for future use)
+    if (l4Strip && l4Strip.text && debug) {
+      logInfo("[LayerToMessagesConverter] L4 (Strip) found but skipped");
     }
 
     // Build user message: L3 (smart references/content) + L5

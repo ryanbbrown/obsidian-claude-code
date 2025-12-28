@@ -61,17 +61,9 @@ export function useNoteSearch(
   // Filter and search notes based on query (name only)
   const searchResults = useMemo(() => {
     const mergedConfig = { ...DEFAULT_CONFIG, ...config };
-    const customPromptsFolder = getSettings().customPromptsFolder;
 
-    // If no query, return first N notes with custom command notes ranked lower
+    // If no query, return first N notes
     if (!query.trim()) {
-      const regularNotes = allNoteOptions.filter(
-        (opt) => !opt.file.path.startsWith(customPromptsFolder + "/")
-      );
-      const customCommandNotes = allNoteOptions.filter((opt) =>
-        opt.file.path.startsWith(customPromptsFolder + "/")
-      );
-
       // Add "Active Note" option at the top if there is an active file
       if (currentActiveFile) {
         const activeNoteOption: NoteSearchOption = {
@@ -83,15 +75,11 @@ export function useNoteSearch(
           icon: React.createElement(FileClock, { className: "tw-size-4" }),
           file: currentActiveFile,
         };
-        // Reduce limit by 1 to account for active note option
-        const noteResults = [...regularNotes, ...customCommandNotes].slice(
-          0,
-          mergedConfig.limit - 1
-        );
+        const noteResults = allNoteOptions.slice(0, mergedConfig.limit - 1);
         return [activeNoteOption, ...noteResults];
       }
 
-      const noteResults = [...regularNotes, ...customCommandNotes].slice(0, mergedConfig.limit);
+      const noteResults = allNoteOptions.slice(0, mergedConfig.limit);
       return noteResults;
     }
 

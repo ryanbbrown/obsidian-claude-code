@@ -3,13 +3,11 @@ import {
   ProjectConfig,
   subscribeToProjectChange,
   useChainType,
-  useModelKey,
   useProjectLoading,
 } from "@/aiParams";
 import { ChainType } from "@/chainFactory";
 import { AddImageModal } from "@/components/modals/AddImageModal";
 import { Button } from "@/components/ui/button";
-import { ModelSelector } from "@/components/ui/ModelSelector";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatToolControls } from "./ChatToolControls";
 import { isPlusChain } from "@/utils";
@@ -98,7 +96,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [contextFolders, setContextFolders] = useState<string[]>(initialContext?.folders || []);
   const containerRef = useRef<HTMLDivElement>(null);
   const lexicalEditorRef = useRef<any>(null);
-  const [currentModelKey, setCurrentModelKey] = useModelKey();
   const [currentChain] = useChainType();
   const [isProjectLoading] = useProjectLoading();
   const settings = useSettingsValue();
@@ -163,17 +160,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
     return () => clearInterval(interval);
   }, [isProjectLoading, loadingMessages.length]);
-
-  const getDisplayModelKey = (): string => {
-    if (
-      selectedProject &&
-      currentChain === ChainType.PROJECT_CHAIN &&
-      selectedProject.projectModelKey
-    ) {
-      return selectedProject.projectModelKey;
-    }
-    return currentModelKey;
-  };
 
   const onSendMessage = () => {
     // Handle edit mode
@@ -666,22 +652,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <span>Generating...</span>
           </div>
         ) : (
-          <div className="tw-min-w-0 tw-flex-1">
-            <ModelSelector
-              variant="ghost2"
-              size="fit"
-              disabled={disableModelSwitch}
-              value={getDisplayModelKey()}
-              onChange={(modelKey) => {
-                // In project mode, we don't update the global model key
-                // as the project model takes precedence
-                if (currentChain !== ChainType.PROJECT_CHAIN) {
-                  setCurrentModelKey(modelKey);
-                }
-              }}
-              className="tw-max-w-full tw-truncate"
-            />
-          </div>
+          <div className="tw-flex-1" />
         )}
 
         <div className="tw-flex tw-items-center tw-gap-1">

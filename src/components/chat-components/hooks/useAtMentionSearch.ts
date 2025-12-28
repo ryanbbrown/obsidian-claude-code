@@ -158,27 +158,6 @@ export function useAtMentionSearch(
 
       // Apply fuzzy search for all categories if there's a query
       if (!query) {
-        // For notes category with no query, rank custom command notes lower
-        if (selectedCategory === "notes") {
-          const customPromptsFolder = getSettings().customPromptsFolder;
-          const regularNotes = items.filter(
-            (item) =>
-              !(
-                typeof item.data === "object" &&
-                "path" in item.data &&
-                typeof item.data.path === "string" &&
-                item.data.path.startsWith(customPromptsFolder + "/")
-              )
-          );
-          const customCommandNotes = items.filter(
-            (item) =>
-              typeof item.data === "object" &&
-              "path" in item.data &&
-              typeof item.data.path === "string" &&
-              item.data.path.startsWith(customPromptsFolder + "/")
-          );
-          return [...regularNotes, ...customCommandNotes].slice(0, MAX_SEARCH_RESULTS);
-        }
         return items.slice(0, MAX_SEARCH_RESULTS);
       }
 

@@ -9,7 +9,6 @@ import {
   ContextUrlBadge,
 } from "@/components/chat-components/ContextBadges";
 import { InlineMessageEditor } from "@/components/chat-components/InlineMessageEditor";
-import { TokenLimitWarning } from "@/components/chat-components/TokenLimitWarning";
 import {
   cleanupMessageErrorBlockRoots,
   cleanupMessageToolCallRoots,
@@ -25,16 +24,15 @@ import {
   renderToolCallBanner,
   type ToolCallRootRecord,
 } from "@/components/chat-components/toolCallRootManager";
-import { ModelCapability, USER_SENDER } from "@/constants";
+import { USER_SENDER } from "@/constants";
 import { cn } from "@/lib/utils";
 import { parseToolCallMarkers } from "@/LLMProviders/chainRunner/utils/toolCallParser";
 import { processInlineCitations } from "@/LLMProviders/chainRunner/utils/citationUtils";
 import { ChatMessage } from "@/types/message";
-import { cleanMessageForCopy, findCustomModel, insertIntoEditor } from "@/utils";
-import { App, Component, MarkdownRenderer, MarkdownView, TFile } from "obsidian";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useModelKey } from "@/aiParams";
+import { cleanMessageForCopy, insertIntoEditor } from "@/utils";
 import { useSettingsValue } from "@/settings/model";
+import { App, Component, MarkdownRenderer, TFile } from "obsidian";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 const FOOTNOTE_SUFFIX_PATTERN = /^\d+-\d+$/;
 
@@ -184,18 +182,9 @@ const ChatSingleMessage: React.FC<ChatSingleMessageProps> = ({
     getMessageErrorBlockRoots(messageId.current)
   );
 
-  // Check if current model has reasoning capability
+  // Claude Code always uses Claude models which support reasoning
+  const shouldProcessThinkBlocks = true;
   const settings = useSettingsValue();
-  const [modelKey] = useModelKey();
-  const shouldProcessThinkBlocks = useMemo(() => {
-    try {
-      const currentModel = findCustomModel(modelKey, settings.activeModels);
-      return currentModel.capabilities?.includes(ModelCapability.REASONING) ?? false;
-    } catch {
-      // If we can't find the model, default to processing thinking blocks
-      return true;
-    }
-  }, [modelKey, settings.activeModels]);
 
   const copyToClipboard = () => {
     if (!navigator.clipboard || !navigator.clipboard.writeText) {
@@ -627,17 +616,10 @@ const ChatSingleMessage: React.FC<ChatSingleMessageProps> = ({
     }
   };
 
+  /** Inserts message content into the active editor. */
   const handleInsertIntoEditor = () => {
-    let leaf = app.workspace.getMostRecentLeaf();
-    if (!leaf || !(leaf.view instanceof MarkdownView)) {
-      leaf = app.workspace.getLeaf(false);
-      if (!leaf || !(leaf.view instanceof MarkdownView)) return;
-    }
-
-    const editor = leaf.view.editor;
-    const hasSelection = editor.getSelection().length > 0;
     const cleanedContent = cleanMessageForCopy(message.message);
-    insertIntoEditor(cleanedContent, hasSelection);
+    insertIntoEditor(app, cleanedContent);
   };
 
   const renderMessageContent = () => {
@@ -719,9 +701,6 @@ const ChatSingleMessage: React.FC<ChatSingleMessageProps> = ({
           {!isEditing && <MessageContext context={message.context} />}
           <div className="message-content">{renderMessageContent()}</div>
 
-          {message.responseMetadata?.wasTruncated && message.sender !== USER_SENDER && (
-            <TokenLimitWarning message={message} app={app} />
-          )}
 
           {!isStreaming && (
             <div className="tw-flex tw-items-center tw-justify-between">
