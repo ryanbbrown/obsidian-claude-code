@@ -1,12 +1,31 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
+import {App, Editor, MarkdownView, Modal, Notice, Plugin, WorkspaceLeaf} from 'obsidian';
 import {DEFAULT_SETTINGS, ClaudeCodeSettings, ClaudeCodeSettingTab} from "./settings";
 import {editTextWithClaude} from "./claude";
+import CopilotView from "@/components/CopilotView";
+import { CHAT_VIEWTYPE } from "@/constants";
+import { VaultDataManager } from "@/state/vaultDataAtoms";
 
 export default class ClaudeCodePlugin extends Plugin {
 	settings: ClaudeCodeSettings;
 
 	async onload() {
 		await this.loadSettings();
+
+		// Initialize vault data manager for @ mention file search
+		VaultDataManager.getInstance().initialize();
+
+		// Register the chat view
+		this.registerView(CHAT_VIEWTYPE, (leaf) => new CopilotView(leaf, this));
+
+		// Add ribbon icon for chat
+		this.addRibbonIcon('message-square', 'Claude Chat', () => this.activateChatView());
+
+		// Add command to open chat
+		this.addCommand({
+			id: 'open-claude-chat',
+			name: 'Open Chat',
+			callback: () => this.activateChatView(),
+		});
 
 		// Add the "Edit Text" editor command
 		this.addCommand({
@@ -54,7 +73,25 @@ export default class ClaudeCodePlugin extends Plugin {
 		this.addSettingTab(new ClaudeCodeSettingTab(this.app, this));
 	}
 
-	onunload() {}
+	onunload() {
+		VaultDataManager.getInstance().cleanup();
+	}
+
+	/** Activates the chat view in the right sidebar */
+	async activateChatView() {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(CHAT_VIEWTYPE)[0];
+		if (!leaf) {
+			const rightLeaf = workspace.getRightLeaf(false);
+			if (rightLeaf) {
+				await rightLeaf.setViewState({ type: CHAT_VIEWTYPE, active: true });
+				leaf = rightLeaf;
+			}
+		}
+		if (leaf) {
+			workspace.revealLeaf(leaf);
+		}
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<ClaudeCodeSettings>);

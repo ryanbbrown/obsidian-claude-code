@@ -1,0 +1,99 @@
+import React, { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ModelDisplay } from "@/components/ui/model-display";
+import { useSettingsValue, getModelKeyFromModel } from "@/settings/model";
+import { checkModelApiKey, err2String } from "@/utils";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface ModelSelectorProps {
+  disabled?: boolean;
+  size?: "sm" | "fit" | "default" | "lg" | "icon";
+  variant?: "default" | "destructive" | "secondary" | "ghost" | "ghost2" | "link" | "success";
+  className?: string;
+  // Always controlled
+  value: string;
+  onChange: (modelKey: string) => void;
+}
+
+export function ModelSelector({
+  disabled = false,
+  size = "fit",
+  variant = "ghost2",
+  className,
+  value,
+  onChange,
+}: ModelSelectorProps) {
+  const [modelError, setModelError] = useState<string | null>(null);
+  const settings = useSettingsValue();
+
+  const currentModel = settings.activeModels.find(
+    (model) => model.enabled && getModelKeyFromModel(model) === value
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant={variant}
+          size={size}
+          disabled={disabled}
+          className={cn("tw-min-w-0 tw-justify-start tw-text-muted", className)}
+        >
+          <div className="tw-min-w-0 tw-flex-1 tw-truncate">
+            {modelError ? (
+              <span className="tw-truncate tw-text-error">Model Load Failed</span>
+            ) : currentModel ? (
+              <ModelDisplay model={currentModel} iconSize={8} />
+            ) : (
+              <span className="tw-truncate">Select Model</span>
+            )}
+          </div>
+          {!disabled && <ChevronDown className="tw-mt-0.5 tw-size-5 tw-shrink-0" />}
+        </Button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="start" className="tw-max-h-64 tw-overflow-y-auto">
+        {settings.activeModels
+          .filter((model) => model.enabled)
+          .map((model) => {
+            const { hasApiKey, errorNotice } = checkModelApiKey(model, settings);
+            return (
+              <DropdownMenuItem
+                key={getModelKeyFromModel(model)}
+                onSelect={async (event) => {
+                  if (!hasApiKey && errorNotice) {
+                    setModelError(errorNotice);
+                  }
+
+                  try {
+                    setModelError(null);
+                    onChange(getModelKeyFromModel(model));
+                  } catch (error) {
+                    const msg = `Model switch failed: ` + err2String(error);
+                    setModelError(msg);
+                    // Restore to the last valid model
+                    const lastValidModel = settings.activeModels.find(
+                      (m) => m.enabled && getModelKeyFromModel(m) === value
+                    );
+                    if (lastValidModel) {
+                      onChange(getModelKeyFromModel(lastValidModel));
+                    }
+                  }
+                }}
+                className={!hasApiKey ? "tw-opacity-70" : ""}
+              >
+                <ModelDisplay model={model} iconSize={12} />
+              </DropdownMenuItem>
+            );
+          })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

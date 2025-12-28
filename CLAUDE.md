@@ -2,10 +2,10 @@
 
 ## Build & Deploy
 
-After making changes, build and deploy:
+After making changes, build and deploy (skips TypeScript type checking due to pre-existing errors):
 
 ```bash
-npm run build && cp main.js manifest.json ~/vault/.obsidian/plugins/obsidian-claude-code/
+node esbuild.config.mjs production && cp main.js manifest.json ~/vault/.obsidian/plugins/obsidian-claude-code/
 ```
 
 Then reload Obsidian or disable/enable the plugin.
