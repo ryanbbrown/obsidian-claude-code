@@ -4,6 +4,7 @@ import {editTextWithClaude} from "./claude";
 import CopilotView from "@/components/CopilotView";
 import { CHAT_VIEWTYPE } from "@/constants";
 import { VaultDataManager } from "@/state/vaultDataAtoms";
+import { PendingEditsManager } from "@/pendingEdits";
 import fixPath from 'fix-path';
 
 export default class ClaudeCodePlugin extends Plugin {
@@ -17,6 +18,10 @@ export default class ClaudeCodePlugin extends Plugin {
 
 		// Initialize vault data manager for @ mention file search
 		VaultDataManager.getInstance().initialize();
+
+		// Initialize pending edits manager with vault path
+		const vaultPath = (this.app.vault.adapter as any).basePath;
+		PendingEditsManager.getInstance().initialize(vaultPath);
 
 		// Register the chat view
 		this.registerView(CHAT_VIEWTYPE, (leaf) => new CopilotView(leaf, this));
@@ -80,6 +85,7 @@ export default class ClaudeCodePlugin extends Plugin {
 
 	onunload() {
 		VaultDataManager.getInstance().cleanup();
+		PendingEditsManager.getInstance().cleanup();
 	}
 
 	/** Activates the chat view in the right sidebar */

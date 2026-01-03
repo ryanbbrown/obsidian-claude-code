@@ -1,6 +1,10 @@
 import { spawn, ChildProcess } from 'child_process';
 import { MessageSegment } from '@/types/message';
 import { makeRelativePath } from '@/utils';
+import { PendingEditsManager } from '@/pendingEdits';
+
+/** Tool names that modify files and should be tracked as pending edits. */
+const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit'];
 
 /** Response message from Claude CLI JSON stream. */
 interface ClaudeMessage {
@@ -117,12 +121,22 @@ export async function runClaudeChat(
 		};
 
 		/** Adds a new tool call segment. */
-		const addToolCall = (id: string, name: string, input: Record<string, unknown>) => {
+		const addToolCall = async (id: string, name: string, input: Record<string, unknown>) => {
 			// Check if tool call already exists
 			const existing = segments.find(s => s.type === 'toolCall' && s.id === id);
 			if (!existing) {
 				// Simplify MCP tool names (e.g., mcp__plugin_perplexity__search -> search)
 				const displayName = name.includes('__') ? name.split('__').pop()! : name;
+
+				// Capture before state for edit tools
+				if (EDIT_TOOLS.includes(displayName) && input.file_path) {
+					await PendingEditsManager.getInstance().captureBeforeState(
+						id,
+						input.file_path as string,
+						displayName
+					);
+				}
+
 				segments.push({
 					type: 'toolCall',
 					id,
@@ -134,11 +148,16 @@ export async function runClaudeChat(
 		};
 
 		/** Completes a tool call with its result. */
-		const completeToolCall = (toolUseId: string) => {
+		const completeToolCall = async (toolUseId: string) => {
 			const segment = segments.find(s => s.type === 'toolCall' && s.id === toolUseId);
 			if (segment && segment.type === 'toolCall') {
 				segment.isExecuting = false;
 				segment.result = formatToolResultSummary(segment.name, segment.input, options.workingDir);
+
+				// Complete pending edit for edit tools
+				if (EDIT_TOOLS.includes(segment.name)) {
+					await PendingEditsManager.getInstance().completePendingEdit(toolUseId);
+				}
 			}
 		};
 
@@ -153,8 +172,9 @@ export async function runClaudeChat(
 			const lines = buffer.split('\n');
 			buffer = lines.pop() || '';
 
-			for (const line of lines) {
-				if (!line.trim()) continue;
+			/** Processes a single JSON line message. */
+			const processLine = async (line: string) => {
+				if (!line.trim()) return;
 
 				try {
 					const msg = JSON.parse(line);
@@ -166,7 +186,7 @@ export async function runClaudeChat(
 								appendText(block.text);
 								emitSegments();
 							} else if (block.type === 'tool_use' && block.id && block.name) {
-								addToolCall(block.id, block.name, block.input || {});
+								await addToolCall(block.id, block.name, block.input || {});
 								emitSegments();
 							}
 						}
@@ -175,7 +195,7 @@ export async function runClaudeChat(
 					// Handle top-level tool_use event
 					if (msg.type === 'tool_use' && msg.name) {
 						const id = msg.id || `tool_${Date.now()}`;
-						addToolCall(id, msg.name, msg.input || {});
+						await addToolCall(id, msg.name, msg.input || {});
 						emitSegments();
 					}
 
@@ -183,7 +203,7 @@ export async function runClaudeChat(
 					if (msg.type === 'tool_result') {
 						const toolUseId = msg.tool_use_id;
 						if (toolUseId) {
-							completeToolCall(toolUseId);
+							await completeToolCall(toolUseId);
 							emitSegments();
 						}
 					}
@@ -192,7 +212,7 @@ export async function runClaudeChat(
 					if (msg.type === 'user' && msg.message?.content) {
 						for (const block of msg.message.content as UserContentBlock[]) {
 							if (block.type === 'tool_result' && block.tool_use_id) {
-								completeToolCall(block.tool_use_id);
+								await completeToolCall(block.tool_use_id);
 								emitSegments();
 							}
 						}
@@ -205,7 +225,7 @@ export async function runClaudeChat(
 								appendText(block.text);
 								emitSegments();
 							} else if (block.type === 'tool_use' && block.id && block.name) {
-								addToolCall(block.id, block.name, block.input || {});
+								await addToolCall(block.id, block.name, block.input || {});
 								emitSegments();
 							}
 						}
@@ -222,7 +242,14 @@ export async function runClaudeChat(
 				} catch (e) {
 					// Skip non-JSON lines
 				}
-			}
+			};
+
+			// Process lines sequentially to maintain order
+			(async () => {
+				for (const line of lines) {
+					await processLine(line);
+				}
+			})();
 		});
 
 		proc.stderr?.on('data', () => {

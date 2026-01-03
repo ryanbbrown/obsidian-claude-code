@@ -13,24 +13,45 @@ import { USER_SENDER } from "@/constants";
 import { cn } from "@/lib/utils";
 import { ChatMessage, MessageSegment, ToolCallSegment } from "@/types/message";
 import { cleanMessageForCopy, insertIntoEditor } from "@/utils";
+import { usePendingEdits } from "@/pendingEdits";
 import { App, Component, MarkdownRenderer, TFile } from "obsidian";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+/** Tool names that create pending edits. */
+const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit'];
+
 const FOOTNOTE_SUFFIX_PATTERN = /^\d+-\d+$/;
 
-/** Renders a tool call as a simple inline badge. */
+/** Renders a tool call as a simple inline badge with pending edit indicator. */
 function ToolCallBadge({ toolCall }: { toolCall: ToolCallSegment }) {
-  const statusIcon = toolCall.isExecuting ? "⏳" : "✓";
-  const statusClass = toolCall.isExecuting ? "tw-text-yellow-500" : "tw-text-green-500";
+  const pendingEdits = usePendingEdits();
+  const isEditTool = EDIT_TOOLS.includes(toolCall.name);
+  const pendingEdit = isEditTool ? pendingEdits.find(e => e.id === toolCall.id) : null;
+  const isPending = pendingEdit !== null && pendingEdit !== undefined;
+
+  const statusIcon = toolCall.isExecuting ? "⏳" : isPending ? "⚠️" : "✓";
+  const statusClass = toolCall.isExecuting
+    ? "tw-text-yellow-500"
+    : isPending
+    ? "tw-text-orange-500"
+    : "tw-text-green-500";
 
   return (
-    <div className="tw-my-1 tw-flex tw-items-start tw-gap-2 tw-rounded tw-bg-[var(--background-secondary)] tw-px-2 tw-py-1 tw-text-xs">
+    <div className={cn(
+      "tw-my-1 tw-flex tw-items-start tw-gap-2 tw-rounded tw-px-2 tw-py-1 tw-text-xs",
+      isPending
+        ? "tw-bg-orange-500/10 tw-border tw-border-orange-500/30"
+        : "tw-bg-[var(--background-secondary)]"
+    )}>
       <span className={cn(statusClass, "tw-shrink-0")}>{statusIcon}</span>
       <span className="tw-font-medium tw-shrink-0 tw-whitespace-nowrap">{toolCall.name}</span>
       {toolCall.result && (
-        <span className="tw-text-[var(--text-muted)] tw-break-all tw-line-clamp-3">
+        <span className="tw-text-[var(--text-muted)] tw-break-all tw-line-clamp-3 tw-flex-1">
           {toolCall.result}
         </span>
+      )}
+      {isPending && (
+        <span className="tw-text-orange-500 tw-text-[10px] tw-shrink-0">pending</span>
       )}
     </div>
   );
