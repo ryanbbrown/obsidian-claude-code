@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
-import { Notice } from 'obsidian';
+import { MessageSegment } from '@/types/message';
+import { makeRelativePath } from '@/utils';
 
 /** Response message from Claude CLI JSON stream. */
 interface ClaudeMessage {
@@ -19,17 +20,9 @@ interface UserContentBlock {
 	content?: string;
 }
 
-/** User message from Claude CLI JSON stream. */
-interface ClaudeUserMessage {
-	type: 'user';
-	message: {
-		content: UserContentBlock[];
-	};
-}
-
 /** Callbacks for chat streaming events. */
 export interface ClaudeChatCallbacks {
-	onContentUpdate: (content: string) => void;
+	onSegmentsUpdate: (segments: MessageSegment[]) => void;
 	onComplete: () => void;
 	onError: (error: Error) => void;
 	onSessionId?: (sessionId: string) => void;
@@ -40,6 +33,7 @@ export interface ClaudeChatOptions {
 	claudePath: string;
 	workingDir: string;
 	sessionId?: string;
+	envVars?: Record<string, string>;
 }
 
 /** Session state returned from Claude CLI. */
@@ -47,25 +41,35 @@ export interface ClaudeSessionState {
 	sessionId?: string;
 }
 
-/** Formats a complete tool call marker (START + END) for embedding in streamed content. */
-export function formatToolCallComplete(id: string, name: string, input: any, result: string): string {
-	const encodedResult = 'ENC:' + encodeURIComponent(result);
-	// Format: <!--TOOL_CALL_START:id:toolName:displayName:emoji:confirmationMessage:isExecuting-->content<!--TOOL_CALL_END:id:result-->
-	return `<!--TOOL_CALL_START:${id}:${name}:${name}:🔧::false--><!--TOOL_CALL_END:${id}:${encodedResult}-->\n`;
+/** Formats a tool result summary showing file path and line range. */
+function formatToolResultSummary(name: string, input: Record<string, unknown>, workingDir: string): string {
+	// Handle Grep tool specially - show the search pattern
+	if (name === 'Grep' || name === 'grep') {
+		const pattern = input.pattern as string | undefined;
+		return pattern ? `"${pattern}"` : 'Completed';
+	}
+
+	const filePath = input.file_path as string | undefined;
+	if (!filePath) return 'Completed';
+
+	const relativePath = makeRelativePath(filePath, workingDir);
+
+	const offset = input.offset as number | undefined;
+	const limit = input.limit as number | undefined;
+
+	if (offset !== undefined && limit !== undefined) {
+		return `${relativePath} (lines ${offset + 1}-${offset + limit})`;
+	} else if (offset !== undefined) {
+		return `${relativePath} (from line ${offset + 1})`;
+	} else if (limit !== undefined) {
+		return `${relativePath} (first ${limit} lines)`;
+	}
+	return relativePath;
 }
 
 let currentChatProcess: ChildProcess | null = null;
 
-/** Content block from assistant message. */
-interface ContentBlock {
-	type: string;
-	text?: string;
-	id?: string;
-	name?: string;
-	input?: any;
-}
-
-/** Runs Claude CLI chat with streaming callbacks for text and tool calls. */
+/** Runs Claude CLI chat with streaming callbacks for segments. */
 export async function runClaudeChat(
 	prompt: string,
 	options: ClaudeChatOptions,
@@ -74,7 +78,7 @@ export async function runClaudeChat(
 	return new Promise((resolve, reject) => {
 		const env = {
 			...process.env,
-			PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin:${process.env.HOME}/.local/bin`,
+			...options.envVars,
 		};
 
 		const args = [
@@ -84,7 +88,6 @@ export async function runClaudeChat(
 			'--dangerously-skip-permissions',
 		];
 
-		// Resume existing session if we have one
 		if (options.sessionId) {
 			args.push('--resume', options.sessionId);
 		}
@@ -100,32 +103,48 @@ export async function runClaudeChat(
 		currentChatProcess = proc;
 		let buffer = '';
 
-		// Simple append-based state
-		let fullContent = '';
-		const pendingToolCalls = new Map<string, { name: string; input: any; position: number }>();
+		// Segment-based state
+		const segments: MessageSegment[] = [];
 
-		/** Emits current content. */
-		const emitContent = () => {
-			callbacks.onContentUpdate(fullContent);
+		/** Appends text to the last text segment or creates a new one. */
+		const appendText = (text: string) => {
+			const lastSegment = segments[segments.length - 1];
+			if (lastSegment?.type === 'text') {
+				lastSegment.content += text;
+			} else {
+				segments.push({ type: 'text', content: text });
+			}
 		};
 
-		/** Inserts a completed tool marker at the position where tool_use was. */
-		const completeToolCall = (toolUseId: string, result: string) => {
-			const pending = pendingToolCalls.get(toolUseId);
-			if (pending) {
-				const marker = formatToolCallComplete(toolUseId, pending.name, pending.input, result);
-				// Insert marker at the position where the tool was called
-				fullContent = fullContent.slice(0, pending.position) + marker + fullContent.slice(pending.position);
-				// Adjust positions of any pending tools that come after this one
-				const insertedLength = marker.length;
-				for (const [id, tool] of pendingToolCalls) {
-					if (tool.position > pending.position) {
-						tool.position += insertedLength;
-					}
-				}
-				pendingToolCalls.delete(toolUseId);
-				emitContent();
+		/** Adds a new tool call segment. */
+		const addToolCall = (id: string, name: string, input: Record<string, unknown>) => {
+			// Check if tool call already exists
+			const existing = segments.find(s => s.type === 'toolCall' && s.id === id);
+			if (!existing) {
+				// Simplify MCP tool names (e.g., mcp__plugin_perplexity__search -> search)
+				const displayName = name.includes('__') ? name.split('__').pop()! : name;
+				segments.push({
+					type: 'toolCall',
+					id,
+					name: displayName,
+					input,
+					isExecuting: true,
+				});
 			}
+		};
+
+		/** Completes a tool call with its result. */
+		const completeToolCall = (toolUseId: string) => {
+			const segment = segments.find(s => s.type === 'toolCall' && s.id === toolUseId);
+			if (segment && segment.type === 'toolCall') {
+				segment.isExecuting = false;
+				segment.result = formatToolResultSummary(segment.name, segment.input, options.workingDir);
+			}
+		};
+
+		/** Emits current segments. */
+		const emitSegments = () => {
+			callbacks.onSegmentsUpdate([...segments]);
 		};
 
 		proc.stdout?.on('data', (data: Buffer) => {
@@ -144,16 +163,11 @@ export async function runClaudeChat(
 					if (msg.type === 'assistant' && msg.message?.content) {
 						for (const block of msg.message.content) {
 							if (block.type === 'text' && block.text) {
-								fullContent += block.text;
-								emitContent();
+								appendText(block.text);
+								emitSegments();
 							} else if (block.type === 'tool_use' && block.id && block.name) {
-								if (!pendingToolCalls.has(block.id)) {
-									pendingToolCalls.set(block.id, {
-										name: block.name,
-										input: block.input,
-										position: fullContent.length
-									});
-								}
+								addToolCall(block.id, block.name, block.input || {});
+								emitSegments();
 							}
 						}
 					}
@@ -161,20 +175,16 @@ export async function runClaudeChat(
 					// Handle top-level tool_use event
 					if (msg.type === 'tool_use' && msg.name) {
 						const id = msg.id || `tool_${Date.now()}`;
-						if (!pendingToolCalls.has(id)) {
-							pendingToolCalls.set(id, {
-								name: msg.name,
-								input: msg.input,
-								position: fullContent.length
-							});
-						}
+						addToolCall(id, msg.name, msg.input || {});
+						emitSegments();
 					}
 
 					// Handle top-level tool_result event
 					if (msg.type === 'tool_result') {
-						const toolUseId = msg.tool_use_id || Array.from(pendingToolCalls.keys())[0];
+						const toolUseId = msg.tool_use_id;
 						if (toolUseId) {
-							completeToolCall(toolUseId, msg.output || msg.content || '');
+							completeToolCall(toolUseId);
+							emitSegments();
 						}
 					}
 
@@ -182,7 +192,8 @@ export async function runClaudeChat(
 					if (msg.type === 'user' && msg.message?.content) {
 						for (const block of msg.message.content as UserContentBlock[]) {
 							if (block.type === 'tool_result' && block.tool_use_id) {
-								completeToolCall(block.tool_use_id, block.content || '');
+								completeToolCall(block.tool_use_id);
+								emitSegments();
 							}
 						}
 					}
@@ -191,16 +202,11 @@ export async function runClaudeChat(
 					if (msg.type === 'message' && msg.role === 'assistant' && msg.content) {
 						for (const block of msg.content) {
 							if (block.type === 'text' && block.text) {
-								fullContent += block.text;
-								emitContent();
+								appendText(block.text);
+								emitSegments();
 							} else if (block.type === 'tool_use' && block.id && block.name) {
-								if (!pendingToolCalls.has(block.id)) {
-									pendingToolCalls.set(block.id, {
-										name: block.name,
-										input: block.input,
-										position: fullContent.length
-									});
-								}
+								addToolCall(block.id, block.name, block.input || {});
+								emitSegments();
 							}
 						}
 					}
@@ -219,8 +225,8 @@ export async function runClaudeChat(
 			}
 		});
 
-		proc.stderr?.on('data', (data: Buffer) => {
-			console.error('[Claude stderr]', data.toString());
+		proc.stderr?.on('data', () => {
+			// Stderr is ignored
 		});
 
 		proc.on('error', (err) => {
@@ -256,6 +262,7 @@ export function stopClaudeChat(): void {
 interface ClaudeOptions {
 	claudePath: string;
 	workingDir: string;
+	envVars?: Record<string, string>;
 	onText?: (text: string) => void;
 	onComplete?: (fullText: string) => void;
 	onError?: (error: Error) => void;
@@ -267,7 +274,7 @@ export async function runClaude(prompt: string, options: ClaudeOptions): Promise
 		// Electron doesn't inherit shell PATH, so we need to set it manually
 		const env = {
 			...process.env,
-			PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin:${process.env.HOME}/.local/bin`,
+			...options.envVars,
 		};
 
 		const args = [
@@ -323,8 +330,8 @@ export async function runClaude(prompt: string, options: ClaudeOptions): Promise
 			}
 		});
 
-		proc.stderr?.on('data', (data: Buffer) => {
-			console.error('[Claude stderr]', data.toString());
+		proc.stderr?.on('data', () => {
+			// Stderr is ignored
 		});
 
 		proc.on('error', (err) => {

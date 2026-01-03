@@ -9,7 +9,7 @@ import { createRoot, Root } from "react-dom/client";
 
 interface PluginWithSettings {
   app: App;
-  settings: { claudePath: string };
+  settings: { claudePath: string; envVars: Record<string, string> };
 }
 
 export default class CopilotView extends ItemView {
@@ -52,7 +52,7 @@ export default class CopilotView extends ItemView {
       <AppContext.Provider value={this.app}>
         <EventTargetContext.Provider value={this.eventTarget}>
           <Tooltip.Provider delayDuration={0}>
-            <Chat app={this.app} claudePath={this.plugin.settings.claudePath} />
+            <Chat app={this.app} claudePath={this.plugin.settings.claudePath} envVars={this.plugin.settings.envVars} />
           </Tooltip.Provider>
         </EventTargetContext.Provider>
       </AppContext.Provider>

@@ -1,6 +1,25 @@
 import { PromptContextEnvelope } from "@/context/PromptContextTypes";
 import { TFile } from "obsidian";
 
+/** Text segment in a streaming message */
+export interface TextSegment {
+  type: 'text';
+  content: string;
+}
+
+/** Tool call segment in a streaming message */
+export interface ToolCallSegment {
+  type: 'toolCall';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isExecuting: boolean;
+}
+
+/** A segment in a streaming message (either text or tool call) */
+export type MessageSegment = TextSegment | ToolCallSegment;
+
 /**
  * Formatted timestamp with multiple representations
  */
@@ -111,6 +130,9 @@ export interface ChatMessage {
 
   /** Response metadata from LLM (for AI messages) */
   responseMetadata?: ResponseMetadata;
+
+  /** Structured segments for AI messages (text and tool calls) */
+  segments?: MessageSegment[];
 }
 
 /**

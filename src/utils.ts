@@ -39,6 +39,13 @@ export function openFileInWorkspace(app: App, filePath: string): void {
   }
 }
 
+/** Makes an absolute path relative to a base directory */
+export function makeRelativePath(absolutePath: string, baseDir: string): string {
+  return absolutePath.startsWith(baseDir)
+    ? absolutePath.slice(baseDir.length).replace(/^\//, '')
+    : absolutePath;
+}
+
 export interface FormattedDateTime {
   fileName: string;
   display: string;

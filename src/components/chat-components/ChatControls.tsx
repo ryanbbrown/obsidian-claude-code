@@ -1,16 +1,29 @@
 /** Simplified ChatControls */
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChatHistoryPopover } from "@/components/chat-components/ChatHistoryPopover";
 import { MessageCirclePlus } from "lucide-react";
 import React from "react";
 
 interface ChatControlsProps {
   onNewChat?: () => void;
+  vaultPath?: string;
+  onLoadConversation?: (sessionId: string) => void;
 }
 
-export const ChatControls: React.FC<ChatControlsProps> = ({ onNewChat }) => {
+export const ChatControls: React.FC<ChatControlsProps> = ({
+  onNewChat,
+  vaultPath,
+  onLoadConversation,
+}) => {
   return (
     <div className="tw-flex tw-items-center tw-gap-2">
+      {vaultPath && onLoadConversation && (
+        <ChatHistoryPopover
+          vaultPath={vaultPath}
+          onLoadConversation={onLoadConversation}
+        />
+      )}
       {onNewChat && (
         <Tooltip>
           <TooltipTrigger asChild>

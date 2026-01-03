@@ -4,11 +4,15 @@ import {editTextWithClaude} from "./claude";
 import CopilotView from "@/components/CopilotView";
 import { CHAT_VIEWTYPE } from "@/constants";
 import { VaultDataManager } from "@/state/vaultDataAtoms";
+import fixPath from 'fix-path';
 
 export default class ClaudeCodePlugin extends Plugin {
 	settings: ClaudeCodeSettings;
 
 	async onload() {
+		// Fix PATH for spawned processes (gets full PATH from user's shell profile)
+		fixPath();
+
 		await this.loadSettings();
 
 		// Initialize vault data manager for @ mention file search
@@ -49,6 +53,7 @@ export default class ClaudeCodePlugin extends Plugin {
 						const result = await editTextWithClaude(selectedText, instruction, {
 							claudePath: this.settings.claudePath,
 							workingDir: vaultPath,
+							envVars: this.settings.envVars,
 							onText: (text) => {
 								// Could update a status bar here for streaming feedback
 							},

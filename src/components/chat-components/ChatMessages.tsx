@@ -1,13 +1,13 @@
 import ChatSingleMessage from "@/components/chat-components/ChatSingleMessage";
 import { USER_SENDER } from "@/constants";
 import { useChatScrolling } from "@/hooks/useChatScrolling";
-import { ChatMessage } from "@/types/message";
+import { ChatMessage, MessageSegment } from "@/types/message";
 import { App } from "obsidian";
 import React, { memo, useEffect, useState } from "react";
 
 interface ChatMessagesProps {
   chatHistory: ChatMessage[];
-  currentAiMessage: string;
+  currentSegments: MessageSegment[];
   loading?: boolean;
   loadingMessage?: string;
   app: App;
@@ -21,7 +21,7 @@ interface ChatMessagesProps {
 const ChatMessages = memo(
   ({
     chatHistory,
-    currentAiMessage,
+    currentSegments,
     loading,
     loadingMessage,
     app,
@@ -50,7 +50,7 @@ const ChatMessages = memo(
       return () => clearInterval(intervalId);
     }, [loading]);
 
-    if (!chatHistory.filter((message) => message.isVisible).length && !currentAiMessage) {
+    if (!chatHistory.filter((message) => message.isVisible).length && currentSegments.length === 0) {
       return <div className="tw-flex tw-size-full tw-flex-col tw-gap-2 tw-overflow-y-auto" />;
     }
 
@@ -93,7 +93,7 @@ const ChatMessages = memo(
               )
             );
           })}
-          {(currentAiMessage || loading) && (
+          {(currentSegments.length > 0 || loading) && (
             <div
               className="tw-w-full"
               style={{
@@ -104,9 +104,10 @@ const ChatMessages = memo(
                 key="ai_message_streaming"
                 message={{
                   sender: "AI",
-                  message: currentAiMessage || getLoadingMessage(),
+                  message: getLoadingMessage(),
                   isVisible: true,
                   timestamp: null,
+                  segments: currentSegments.length > 0 ? currentSegments : undefined,
                 }}
                 app={app}
                 isStreaming={true}

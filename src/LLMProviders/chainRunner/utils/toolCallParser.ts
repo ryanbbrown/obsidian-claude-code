@@ -26,8 +26,6 @@ export interface ParsedMessage {
   }>;
 }
 
-const TOOL_RESULT_UI_MAX_LENGTH = 5000;
-const TOOL_RESULT_OMITTED_THRESHOLD_MESSAGE = `Result omitted to keep the UI responsive (payload exceeded ${TOOL_RESULT_UI_MAX_LENGTH.toLocaleString()} characters).`;
 
 /**
  * Safely encode tool result so it can be embedded inside an HTML comment
@@ -55,15 +53,6 @@ export function decodeResultFromMarker(result: string | undefined): string | und
   }
 }
 
-/**
- * Build a short placeholder message when a tool payload is too large for the UI.
- *
- * @param toolName - Name of the tool that produced the payload.
- * @returns Placeholder string for banner rendering.
- */
-function buildOmittedResultMessage(toolName: string): string {
-  return `Tool '${toolName}' ${TOOL_RESULT_OMITTED_THRESHOLD_MESSAGE}`;
-}
 
 /**
  * For logging only: decode any encoded tool results embedded in markers
@@ -212,15 +201,9 @@ export function parseToolCallMarkers(message: string, messageId?: string): Parse
       result,
     ] = match;
 
-    // Decode the result and check if it's too large for UI display
+    // Decode the result (truncation is handled at storage time in claude.ts)
     const rawResult = typeof result === "string" ? result : "";
-    const decodedResult = decodeResultFromMarker(rawResult);
-    const resultLength = typeof decodedResult === "string" ? decodedResult.length : 0;
-
-    const safeResult =
-      resultLength > TOOL_RESULT_UI_MAX_LENGTH
-        ? buildOmittedResultMessage(toolName)
-        : (decodedResult ?? undefined);
+    const decodedResult = decodeResultFromMarker(rawResult) ?? undefined;
 
     segments.push({
       type: "toolCall",
@@ -232,7 +215,7 @@ export function parseToolCallMarkers(message: string, messageId?: string): Parse
         emoji,
         confirmationMessage: confirmationMessage || undefined,
         isExecuting: isExecuting === "true",
-        result: safeResult,
+        result: decodedResult,
         startIndex: match.index,
         endIndex: match.index + fullMatch.length,
       },
