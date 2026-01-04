@@ -13,4 +13,5 @@ export {
   subscribeToPendingFilesChange,
 } from './pendingEditsAtom';
 export { computeLineDiff, computeHunks, applyHunkDecisions } from './diff';
+export { createPendingEditsExtension } from './editorExtension';
 export type { PendingEdit, PendingEditCapture, DiffLine, Hunk, PendingFile } from './types';

@@ -1,13 +1,17 @@
 /** Chat component with Claude CLI streaming integration */
-import ChatControls from "@/components/chat-components/ChatControls";
+import { PendingEditsBar } from "@/components/chat-components/ChatControls";
+import { ChatHistoryPopover } from "@/components/chat-components/ChatHistoryPopover";
 import ChatInput from "@/components/chat-components/ChatInput";
 import ChatMessages from "@/components/chat-components/ChatMessages";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { runClaudeChat, stopClaudeChat } from "@/claude";
 import { AI_SENDER, USER_SENDER } from "@/constants";
 import { ChatInputProvider, useChatInput } from "@/context/ChatInputContext";
 import { ChatMessage, MessageSegment } from "@/types/message";
 import { formatDateTime } from "@/utils";
 import { getClaudeProjectPath, loadConversationMessages } from "@/utils/claudeConversations";
+import { MessageCirclePlus } from "lucide-react";
 import { TFile, App } from "obsidian";
 import React, { useCallback, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
@@ -40,6 +44,7 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
   const [inputMessage, setInputMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [contextNotes, setContextNotes] = useState<TFile[]>([]);
+  const [includeActiveNote, setIncludeActiveNote] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const isMountedRef = useRef(true);
   const finalSegmentsRef = useRef<MessageSegment[]>([]);
@@ -53,7 +58,16 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
       if (!inputMessage.trim()) return;
 
       // Build message with @filepath prefixes for context files
-      const filesToInclude = passedContextNotes ?? contextNotes;
+      const filesToInclude = [...(passedContextNotes ?? contextNotes)];
+
+      // Include active file if flag is set
+      if (includeActiveNote) {
+        const activeFile = app.workspace.getActiveFile();
+        if (activeFile && !filesToInclude.some(f => f.path === activeFile.path)) {
+          filesToInclude.push(activeFile);
+        }
+      }
+
       const vaultPath = (app.vault.adapter as any).basePath;
       const fileRefs = filesToInclude.map(f => `@${vaultPath}/${f.path}`).join(' ');
       const messageWithContext = fileRefs ? `${fileRefs} ${inputMessage}` : inputMessage;
@@ -69,6 +83,7 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
 
       setInputMessage("");
       setContextNotes([]); // Clear context after sending
+      setIncludeActiveNote(false); // Clear active note flag after sending
       setLoading(true);
       finalSegmentsRef.current = [];
 
@@ -113,7 +128,7 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
         setLoading(false);
       }
     },
-    [inputMessage, addMessage, app, claudePath, envVars, contextNotes, sessionId]
+    [inputMessage, addMessage, app, claudePath, envVars, contextNotes, includeActiveNote, sessionId]
   );
 
   const handleStopGenerating = useCallback(() => {
@@ -140,6 +155,7 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
     setSessionId(undefined);
     setCurrentSegments([]);
     setContextNotes([]);
+    setIncludeActiveNote(false);
     setLoading(false);
   }, []);
 
@@ -168,13 +184,7 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
 
   return (
     <div className="tw-flex tw-size-full tw-flex-col tw-overflow-hidden">
-      <div className="tw-flex tw-items-center tw-justify-end tw-px-2 tw-py-1 tw-border-b tw-border-border">
-        <ChatControls
-          onNewChat={handleNewChat}
-          vaultPath={vaultPath}
-          onLoadConversation={handleLoadConversation}
-        />
-      </div>
+      <PendingEditsBar />
       <div className="tw-flex tw-size-full tw-flex-col tw-overflow-hidden">
         <ChatMessages
           chatHistory={chatHistory}
@@ -188,6 +198,20 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
           onReplaceChat={setInputMessage}
           showHelperComponents={true}
         />
+        <div className="tw-flex tw-items-center tw-justify-end tw-gap-1 tw-px-2 tw-py-1">
+          <ChatHistoryPopover
+            vaultPath={vaultPath}
+            onLoadConversation={handleLoadConversation}
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={handleNewChat}>
+                <MessageCirclePlus className="tw-size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New Chat</TooltipContent>
+          </Tooltip>
+        </div>
         <ChatInput
           inputMessage={inputMessage}
           setInputMessage={setInputMessage}
@@ -197,8 +221,8 @@ const ChatInternal: React.FC<ChatProps & { chatInput: ReturnType<typeof useChatI
           app={app}
           contextNotes={contextNotes}
           setContextNotes={setContextNotes}
-          includeActiveNote={false}
-          setIncludeActiveNote={() => {}}
+          includeActiveNote={includeActiveNote}
+          setIncludeActiveNote={setIncludeActiveNote}
           selectedImages={[]}
           onAddImage={() => {}}
           setSelectedImages={() => {}}

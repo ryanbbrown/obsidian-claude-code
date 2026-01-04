@@ -57,7 +57,7 @@ export function computeLineDiff(oldContent: string, newContent: string): DiffLin
 }
 
 /** Groups diff lines into hunks (contiguous groups of changes with context). */
-export function computeHunks(oldContent: string, newContent: string, contextLines: number = 3): Hunk[] {
+export function computeHunks(oldContent: string, newContent: string): Hunk[] {
   const diffLines = computeLineDiff(oldContent, newContent);
   if (diffLines.length === 0) return [];
 
@@ -65,73 +65,77 @@ export function computeHunks(oldContent: string, newContent: string, contextLine
   let currentHunk: DiffLine[] = [];
   let hunkStartOld = 0;
   let hunkStartNew = 0;
-  let lastChangeIndex = -1;
   let hunkId = 0;
+  let inChangeBlock = false;
+  let hasSeenAdd = false; // Track if we've seen an 'added' line in current hunk
 
   for (let i = 0; i < diffLines.length; i++) {
     const line = diffLines[i];
     const isChange = line.type !== 'context';
+    const isBlankContext = !isChange && line.content.trim() === '';
 
     if (isChange) {
-      // If this is a new hunk or we're within context distance of last change
-      if (currentHunk.length === 0) {
-        // Start new hunk - include up to contextLines of preceding context
-        const contextStart = Math.max(0, i - contextLines);
-        for (let j = contextStart; j < i; j++) {
-          if (currentHunk.length === 0) {
-            hunkStartOld = diffLines[j].oldLine ?? 0;
-            hunkStartNew = diffLines[j].newLine ?? 0;
-          }
-          currentHunk.push(diffLines[j]);
+      // Check for removed→added→removed pattern (split before this removed)
+      if (line.type === 'removed' && hasSeenAdd && inChangeBlock) {
+        // Split: save current hunk, start new one
+        if (currentHunk.some(l => l.type !== 'context')) {
+          hunks.push(createHunk(hunkId++, hunkStartOld, hunkStartNew, currentHunk));
         }
-        if (currentHunk.length === 0) {
-          hunkStartOld = line.oldLine ?? 0;
-          hunkStartNew = line.newLine ?? 0;
+        // Keep last blank context line as leading context for new hunk
+        const lastLine = currentHunk[currentHunk.length - 1];
+        if (lastLine?.type === 'context' && lastLine.content.trim() === '') {
+          currentHunk = [lastLine];
+          hunkStartOld = lastLine.oldLine ?? 0;
+          hunkStartNew = lastLine.newLine ?? 0;
+        } else {
+          currentHunk = [];
         }
-      } else if (i - lastChangeIndex > contextLines * 2) {
-        // Too far from last change - finish current hunk and start new one
-        // Add trailing context to current hunk
-        for (let j = lastChangeIndex + 1; j <= Math.min(lastChangeIndex + contextLines, i - 1); j++) {
-          if (diffLines[j].type === 'context') {
-            currentHunk.push(diffLines[j]);
-          }
-        }
+        hasSeenAdd = false;
+      }
 
-        // Save current hunk
-        hunks.push(createHunk(hunkId++, hunkStartOld, hunkStartNew, currentHunk));
-
-        // Start new hunk with leading context
-        currentHunk = [];
-        const contextStart = Math.max(lastChangeIndex + contextLines + 1, i - contextLines);
-        for (let j = contextStart; j < i; j++) {
-          if (currentHunk.length === 0) {
-            hunkStartOld = diffLines[j].oldLine ?? 0;
-            hunkStartNew = diffLines[j].newLine ?? 0;
-          }
-          currentHunk.push(diffLines[j]);
-        }
-        if (currentHunk.length === 0) {
-          hunkStartOld = line.oldLine ?? 0;
-          hunkStartNew = line.newLine ?? 0;
+      if (!inChangeBlock && currentHunk.length > 0) {
+        // We had context-only lines, keep only last 1 as leading context
+        const leadingContext = currentHunk.slice(-1);
+        currentHunk = leadingContext;
+        if (leadingContext.length > 0) {
+          hunkStartOld = leadingContext[0].oldLine ?? 0;
+          hunkStartNew = leadingContext[0].newLine ?? 0;
         }
       }
 
+      if (currentHunk.length === 0) {
+        hunkStartOld = line.oldLine ?? 0;
+        hunkStartNew = line.newLine ?? 0;
+      }
+
       currentHunk.push(line);
-      lastChangeIndex = i;
-    } else if (currentHunk.length > 0 && i - lastChangeIndex <= contextLines) {
-      // Add context within range after a change
+      inChangeBlock = true;
+      if (line.type === 'added') hasSeenAdd = true;
+    } else if (isBlankContext) {
+      // Blank context line - never splits, just add to current hunk
       currentHunk.push(line);
+    } else {
+      // Non-blank context line - always splits if we're in a change block
+      if (inChangeBlock) {
+        // Add this line as trailing context, then split
+        currentHunk.push(line);
+
+        if (currentHunk.some(l => l.type !== 'context')) {
+          hunks.push(createHunk(hunkId++, hunkStartOld, hunkStartNew, currentHunk));
+        }
+
+        currentHunk = [];
+        inChangeBlock = false;
+        hasSeenAdd = false;
+      } else {
+        // Not in a change block, just accumulate context
+        currentHunk.push(line);
+      }
     }
   }
 
   // Finish last hunk
-  if (currentHunk.length > 0) {
-    // Add any remaining trailing context
-    for (let j = lastChangeIndex + 1; j < diffLines.length && j <= lastChangeIndex + contextLines; j++) {
-      if (diffLines[j].type === 'context' && !currentHunk.includes(diffLines[j])) {
-        currentHunk.push(diffLines[j]);
-      }
-    }
+  if (currentHunk.length > 0 && currentHunk.some(l => l.type !== 'context')) {
     hunks.push(createHunk(hunkId++, hunkStartOld, hunkStartNew, currentHunk));
   }
 

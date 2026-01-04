@@ -4,8 +4,9 @@ import {editTextWithClaude} from "./claude";
 import CopilotView from "@/components/CopilotView";
 import { CHAT_VIEWTYPE } from "@/constants";
 import { VaultDataManager } from "@/state/vaultDataAtoms";
-import { PendingEditsManager } from "@/pendingEdits";
+import { PendingEditsManager, createPendingEditsExtension, DiffLine } from "@/pendingEdits";
 import fixPath from 'fix-path';
+import { promises as fs } from 'fs';
 
 export default class ClaudeCodePlugin extends Plugin {
 	settings: ClaudeCodeSettings;
@@ -19,9 +20,13 @@ export default class ClaudeCodePlugin extends Plugin {
 		// Initialize vault data manager for @ mention file search
 		VaultDataManager.getInstance().initialize();
 
-		// Initialize pending edits manager with vault path
+		// Initialize pending edits manager with vault path and setting
 		const vaultPath = (this.app.vault.adapter as any).basePath;
 		PendingEditsManager.getInstance().initialize(vaultPath);
+		PendingEditsManager.getInstance().setEnabled(this.settings.showPendingEdits);
+
+		// Register CodeMirror extension for inline diff decorations
+		this.registerEditorExtension(createPendingEditsExtension());
 
 		// Register the chat view
 		this.registerView(CHAT_VIEWTYPE, (leaf) => new CopilotView(leaf, this));
@@ -79,6 +84,49 @@ export default class ClaudeCodePlugin extends Plugin {
 				}).open();
 			}
 		});
+
+		// Test commands for applying saved edits from debug JSON files
+		const testEdits: Record<string, string> = {
+			'AI Opinions Original': 'AI_Opinions_original.json',
+			'AI Opinions Single Bullet': 'AI_Opinions_single_bullet.json',
+			'MCP Edits': 'mcp_edits.json',
+		};
+
+		for (const [name, filename] of Object.entries(testEdits)) {
+			const id = `apply-test-edit-${filename.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`;
+			this.addCommand({
+				id,
+				name: `Apply Test Edit: ${name}`,
+				callback: async () => {
+					try {
+						const jsonPath = `/Users/ryanbrown/code/obsidian-claude-code/.pending-edits-debug/${filename}`;
+						const jsonContent = await fs.readFile(jsonPath, 'utf-8');
+						const savedData = JSON.parse(jsonContent);
+
+						const diffLines: DiffLine[] = savedData.diffLines;
+						const currentLines: string[] = [];
+						for (const line of diffLines) {
+							if (line.type === 'context' || line.type === 'added') {
+								currentLines[line.newLine!] = line.content;
+							}
+						}
+						const editedContent = currentLines.join('\n');
+
+						const manager = PendingEditsManager.getInstance();
+						const fakeToolId = `test-edit-${Date.now()}`;
+
+						await manager.captureBeforeState(fakeToolId, savedData.filePath, 'Edit');
+						await fs.writeFile(savedData.filePath, editedContent, 'utf-8');
+						await manager.completePendingEdit(fakeToolId);
+
+						new Notice(`Applied test edit: ${name}`);
+					} catch (error: any) {
+						new Notice(`Failed to apply "${name}": ${error.message}`);
+						console.error(`[ApplyTestEdit:${name}]`, error);
+					}
+				},
+			});
+		}
 
 		this.addSettingTab(new ClaudeCodeSettingTab(this.app, this));
 	}

@@ -1,14 +1,17 @@
 import {App, PluginSettingTab, Setting, setIcon} from "obsidian";
 import ClaudeCodePlugin from "./main";
+import { PendingEditsManager } from "@/pendingEdits";
 
 export interface ClaudeCodeSettings {
 	claudePath: string;
 	envVars: Record<string, string>;
+	showPendingEdits: boolean;
 }
 
 export const DEFAULT_SETTINGS: ClaudeCodeSettings = {
 	claudePath: `${process.env.HOME}/.local/bin/claude`,
 	envVars: {},
+	showPendingEdits: true,
 }
 
 export class ClaudeCodeSettingTab extends PluginSettingTab {
@@ -32,6 +35,17 @@ export class ClaudeCodeSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.claudePath)
 				.onChange(async (value) => {
 					this.plugin.settings.claudePath = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Show pending edits')
+			.setDesc('When enabled, file edits are shown as pending changes that you can accept or reject. When disabled, edits are applied immediately.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.showPendingEdits)
+				.onChange(async (value) => {
+					this.plugin.settings.showPendingEdits = value;
+					PendingEditsManager.getInstance().setEnabled(value);
 					await this.plugin.saveSettings();
 				}));
 
